@@ -1,0 +1,20 @@
+{
+  "name": "somniagate",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "deploy": "tsx scripts/deploy-paygate.ts",
+    "demo": "tsx scripts/demo.ts",
+    "dev:dashboard": "cd dashboard && pnpm dev",
+    "build:widget": "cd widget && pnpm build",
+    "build:dashboard": "cd dashboard && pnpm build"
+  },
+  "dependencies": {
+    "viem": "~2.37.8",
+    "solc": "0.8.30",
+    "dotenv": "^16.4.5",
+    "tsx": "^4.21.0",
+    "@somnia-chain/reactivity": "^0.1.10",
+    "@somnia-chain/reactivity-contracts": "latest"
+  }
+}

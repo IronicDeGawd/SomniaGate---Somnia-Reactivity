@@ -1,0 +1,7 @@
+node_modules
+.env
+dist
+context/
+.claude/
+CLAUDE.md
+**/CLAUDE.md
