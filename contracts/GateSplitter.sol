@@ -65,5 +65,5 @@ contract GateSplitter is SomniaEventHandler {
             || interfaceId == 0x01ffc9a7; // ERC-165
     }
 
-    receive() external payable {}
+    receive() external payable { revert(); }
 }

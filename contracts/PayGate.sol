@@ -7,6 +7,16 @@ pragma solidity 0.8.30;
  *         users pay to unlock. Reactivity handler auto-splits payments.
  */
 contract PayGate {
+    // ── Reentrancy guard ──
+    bool private _locked;
+
+    modifier nonReentrant() {
+        require(!_locked, "ReentrancyGuard: reentrant call");
+        _locked = true;
+        _;
+        _locked = false;
+    }
+
     struct Gate {
         address creator;
         uint256 price;
@@ -94,7 +104,7 @@ contract PayGate {
      * @notice Pay to unlock content. Emits AccessGranted for Reactivity handler.
      * @param contentId The content to unlock
      */
-    function unlock(bytes32 contentId) external payable {
+    function unlock(bytes32 contentId) external payable nonReentrant {
         Gate storage gate = gates[contentId];
         if (gate.creator == address(0)) revert GateNotFound();
         if (!gate.active) revert GateInactive();
@@ -102,12 +112,12 @@ contract PayGate {
         if (msg.value < gate.price) revert InsufficientPayment();
 
         hasAccess[contentId][msg.sender] = true;
-        gate.totalRevenue += msg.value;
+        gate.totalRevenue += gate.price;
         gate.unlockCount += 1;
 
-        // Calculate split
-        uint256 platformCut = (msg.value * PLATFORM_FEE_BPS) / 10000;
-        uint256 creatorCut = msg.value - platformCut;
+        // Calculate split from gate.price (not msg.value) to prevent overpayment accounting error
+        uint256 platformCut = (gate.price * PLATFORM_FEE_BPS) / 10000;
+        uint256 creatorCut = gate.price - platformCut;
 
         // Credit creator balance (they withdraw later)
         creatorBalances[gate.creator] += creatorCut;
@@ -129,7 +139,7 @@ contract PayGate {
     /**
      * @notice Creator withdraws accumulated revenue.
      */
-    function withdraw() external {
+    function withdraw() external nonReentrant {
         uint256 amount = creatorBalances[msg.sender];
         if (amount == 0) revert NothingToWithdraw();
 
@@ -145,6 +155,7 @@ contract PayGate {
      */
     function updateGate(bytes32 contentId, uint256 newPrice, bool active) external {
         Gate storage gate = gates[contentId];
+        if (gate.creator == address(0)) revert GateNotFound();
         if (gate.creator != msg.sender) revert NotGateCreator();
 
         gate.price = newPrice;
@@ -174,5 +185,4 @@ contract PayGate {
         return (gate.creator, gate.price, gate.active, gate.totalRevenue, gate.unlockCount);
     }
 
-    receive() external payable {}
 }
