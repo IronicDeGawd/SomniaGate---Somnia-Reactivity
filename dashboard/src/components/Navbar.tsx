@@ -6,6 +6,7 @@ import { useAuthStore } from '@/store/auth'
 import { cn } from '@/lib/utils'
 
 const NAV_LINKS = [
+  { label: 'Demo', href: '/demo' },
   { label: 'Dashboard', href: '/dashboard' },
   { label: 'Docs', href: '/docs' },
 ]

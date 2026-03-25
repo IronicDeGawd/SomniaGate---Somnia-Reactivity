@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import { SELECTORS, encodeBytes32 } from '@/lib/contract'
 
-const PAYGATE_ADDRESS = import.meta.env.VITE_PAYGATE_ADDRESS || ''
+const PAYGATE_ADDRESS = '0x87300fb8ae589141271f8840439288f6603fe1f6'
 const SOMNIA_CHAIN_ID = '0xC488' // 50312
 
 export default function GatePage() {
@@ -35,7 +35,6 @@ export default function GatePage() {
       }
 
       // Get gate price
-      const contentId = '0x' + encodeBytes32(id || '')
       const gateData = SELECTORS.getGate + encodeBytes32(id || '')
       const gateResult = await provider.request({
         method: 'eth_call',

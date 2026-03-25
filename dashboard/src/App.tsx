@@ -4,6 +4,7 @@ import { Navbar } from '@/components/Navbar'
 import { Landing } from '@/pages/Landing'
 import { Dashboard } from '@/pages/Dashboard'
 import GatePage from '@/pages/GatePage'
+import Demo from '@/pages/Demo'
 import Docs from '@/pages/Docs'
 
 export default function App() {
@@ -15,6 +16,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Landing />} />
             <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/demo" element={<Demo />} />
             <Route path="/g/:id" element={<GatePage />} />
             <Route path="/docs" element={<Docs />} />
           </Routes>

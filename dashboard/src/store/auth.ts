@@ -111,14 +111,6 @@ export const useAuthStore = create<AuthState>()(
         isRegistered: state.isRegistered,
         apiKey: state.apiKey,
       }),
-      onRehydrate: () => {
-        // After state is restored from localStorage, verify session integrity
-        return (state) => {
-          if (state?.isConnected) {
-            state.verifySession()
-          }
-        }
-      },
     },
   ),
 )
