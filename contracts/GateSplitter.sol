@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import "@somnia-chain/reactivity-contracts/src/SomniaEventHandler.sol";
+import "@somnia-chain/reactivity-contracts/contracts/SomniaEventHandler.sol";
 
 /**
  * @title GateSplitter
@@ -58,11 +58,6 @@ contract GateSplitter is SomniaEventHandler {
         confirmationCount += 1;
 
         emit PaymentConfirmed(contentId, user, amount, creator);
-    }
-
-    function supportsInterface(bytes4 interfaceId) public pure override returns (bool) {
-        return interfaceId == type(ISomniaEventHandler).interfaceId
-            || interfaceId == 0x01ffc9a7; // ERC-165
     }
 
     // Must accept STT — handler needs 32+ STT for Reactivity validators to call it

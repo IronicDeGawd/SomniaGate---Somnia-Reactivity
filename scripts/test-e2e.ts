@@ -91,11 +91,11 @@ async function run() {
   console.log('--- Setup: Fund User ---');
   const fundHash = await walletClient.sendTransaction({
     to: userAccount.address,
-    value: parseEther('5'),
+    value: parseEther('10'),
   });
   await publicClient.waitForTransactionReceipt({ hash: fundHash, timeout: 60_000 });
   const userBal = await publicClient.getBalance({ address: userAccount.address });
-  assert(userBal >= parseEther('4'), `user funded: ${formatEther(userBal)} STT`);
+  assert(userBal >= parseEther('9'), `user funded: ${formatEther(userBal)} STT`);
 
   // --- Test 1: Create gate ---
   console.log('\n--- 1. Create Gate ---');
@@ -249,19 +249,23 @@ async function run() {
 
   // --- Test 12: Overpayment refunds ---
   console.log('\n--- 12. Overpayment Refund ---');
-  const userBalBefore = await publicClient.getBalance({ address: userAccount.address });
-  const overpayHash = await userWallet.writeContract({
-    address: PAYGATE_ADDRESS!,
-    abi: PAYGATE_ABI,
-    functionName: 'unlock',
-    args: [contentId2],
-    value: parseEther('5'), // overpaying by 3 STT
-  });
-  await publicClient.waitForTransactionReceipt({ hash: overpayHash, timeout: 60_000 });
-  const userBalAfter = await publicClient.getBalance({ address: userAccount.address });
-  // User should have lost ~2 STT (gate price) + gas, not 5 STT
-  const spent = userBalBefore - userBalAfter;
-  assert(spent < parseEther('3'), `user spent ${formatEther(spent)} STT (should be ~2 + gas, not 5)`);
+  try {
+    const userBalBefore = await publicClient.getBalance({ address: userAccount.address });
+    const overpayHash = await userWallet.writeContract({
+      address: PAYGATE_ADDRESS!,
+      abi: PAYGATE_ABI,
+      functionName: 'unlock',
+      args: [contentId2],
+      value: parseEther('5'), // overpaying by 3 STT (gate price is 2)
+    });
+    await publicClient.waitForTransactionReceipt({ hash: overpayHash, timeout: 60_000 });
+    const userBalAfter = await publicClient.getBalance({ address: userAccount.address });
+    // User should have lost ~2 STT (gate price) + gas, not 5 STT
+    const spent = userBalBefore - userBalAfter;
+    assert(spent < parseEther('3'), `user spent ${formatEther(spent)} STT (should be ~2 + gas, not 5)`);
+  } catch (err: any) {
+    assert(false, 'overpayment unlock', err.shortMessage || err.message.slice(0, 80));
+  }
 
   // --- Test 13: Deactivate gate ---
   console.log('\n--- 13. Gate Deactivation ---');

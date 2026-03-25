@@ -7,7 +7,9 @@ import solc from 'solc';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const PROJECT_ROOT = path.resolve(import.meta.dirname, '..');
+import { fileURLToPath } from 'url';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = path.resolve(__dirname, '..');
 
 function resolveImport(importPath: string): { contents: string } | { error: string } {
   // Try node_modules resolution walking up from project root
