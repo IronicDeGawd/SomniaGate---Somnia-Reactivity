@@ -5,3 +5,6 @@ context/
 .claude/
 CLAUDE.md
 **/CLAUDE.md
+.DS_Store
+*.tsbuildinfo
+reference/
