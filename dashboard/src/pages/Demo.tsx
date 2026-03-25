@@ -14,8 +14,23 @@ import { useAuthStore } from '@/store/auth'
 import { checkAccess, getGate, unlock, createGate, type Gate } from '@/lib/contract'
 
 const PAYGATE = '0x87300fb8ae589141271f8840439288f6603fe1f6'
+const SPLITTER = '0xec5ce4acd506db15ed71175e47e5afd5e0bbf765'
 const EXPLORER = 'https://shannon-explorer.somnia.network'
+const RPC = 'https://dream-rpc.somnia.network/'
 const DEMO_CONTENT_ID = 'demo-article'
+
+// Read confirmationCount from GateSplitter via public RPC (no wallet needed)
+async function getConfirmationCount(): Promise<bigint> {
+  // confirmationCount() selector = keccak256("confirmationCount()") first 4 bytes
+  const selector = '0x7ac3e4e6'
+  const res = await fetch(RPC, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to: SPLITTER, data: selector }, 'latest'] }),
+  })
+  const json = await res.json()
+  return BigInt(json.result || '0x0')
+}
 
 /* ── Animation variants ── */
 
@@ -58,12 +73,19 @@ function CopyBtn({ text, className }: { text: string; className?: string }) {
 
 type UnlockStatus = 'loading' | 'locked' | 'connecting' | 'paying' | 'confirming' | 'unlocked'
 
+interface ReactivityState {
+  beforeCount: bigint
+  confirmed: boolean
+  delayMs: number | null
+}
+
 function TryItSection() {
   const { address, isConnected, connect } = useAuthStore()
   const [status, setStatus] = useState<UnlockStatus>('loading')
   const [gate, setGate] = useState<Gate | null>(null)
   const [txHash, setTxHash] = useState<string | null>(null)
   const [gasUsed, setGasUsed] = useState<string | null>(null)
+  const [reactivity, setReactivity] = useState<ReactivityState>({ beforeCount: 0n, confirmed: false, delayMs: null })
 
   useEffect(() => {
     async function check() {
@@ -96,11 +118,16 @@ function TryItSection() {
       const already = await checkAccess(PAYGATE, DEMO_CONTENT_ID, addr)
       if (already) { setStatus('unlocked'); return }
 
+      // Snapshot confirmationCount BEFORE unlock
+      const beforeCount = await getConfirmationCount()
+      setReactivity({ beforeCount, confirmed: false, delayMs: null })
+
       setStatus('paying')
       toast.info('Confirm the transaction in your wallet')
       const hash = await unlock(PAYGATE, DEMO_CONTENT_ID, gate.price, addr)
       setTxHash(hash)
       setStatus('confirming')
+      const txSentAt = Date.now()
 
       // Poll receipt
       const provider = (window as any).ethereum
@@ -115,6 +142,17 @@ function TryItSection() {
       }
       setStatus('unlocked')
       toast.success('Content unlocked!')
+
+      // Poll confirmationCount for Reactivity delivery (up to 30s)
+      for (let i = 0; i < 30; i++) {
+        await new Promise(r => setTimeout(r, 1000))
+        const newCount = await getConfirmationCount()
+        if (newCount > beforeCount) {
+          const delayMs = Date.now() - txSentAt
+          setReactivity({ beforeCount, confirmed: true, delayMs })
+          break
+        }
+      }
     } catch (err: any) {
       setStatus('locked')
       if (err.code === 4001) toast.error('Transaction cancelled')
@@ -206,6 +244,84 @@ function TryItSection() {
                           <div className="flex justify-between">
                             <span className="text-[#191A23]/50">Network</span>
                             <span className="text-[#191A23]">Somnia Testnet</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Reactivity Timeline */}
+                      {txHash && (
+                        <div className="rounded-[14px] border border-[#191A23]/10 overflow-hidden">
+                          <div className="px-4 py-2.5 bg-[#191A23] text-white flex items-center gap-2">
+                            <Sparkles className="w-3.5 h-3.5 text-[#B9FF66]" />
+                            <span className="text-xs font-medium">Somnia Reactivity</span>
+                          </div>
+                          <div className="p-4 space-y-3">
+                            {/* Step 1: Payment */}
+                            <div className="flex items-start gap-3">
+                              <div className="mt-0.5 w-5 h-5 rounded-full bg-[#B9FF66] flex items-center justify-center shrink-0">
+                                <Check className="w-3 h-3 text-[#191A23]" />
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-[#191A23]">Payment confirmed on-chain</p>
+                                <p className="text-xs text-[#191A23]/40">AccessGranted event emitted by PayGate</p>
+                              </div>
+                            </div>
+
+                            {/* Step 2: Reactivity callback */}
+                            <div className="flex items-start gap-3">
+                              <div className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
+                                reactivity.confirmed ? 'bg-[#B9FF66]' : 'bg-[#F3F3F3] border border-[#191A23]/20'
+                              }`}>
+                                {reactivity.confirmed
+                                  ? <Check className="w-3 h-3 text-[#191A23]" />
+                                  : <Loader2 className="w-3 h-3 text-[#191A23]/40 animate-spin" />
+                                }
+                              </div>
+                              <div>
+                                <p className="text-sm font-medium text-[#191A23]">
+                                  {reactivity.confirmed ? 'Reactivity handler invoked' : 'Waiting for Reactivity callback…'}
+                                </p>
+                                <p className="text-xs text-[#191A23]/40">
+                                  {reactivity.confirmed
+                                    ? `GateSplitter.onEvent() called by validators in ~${((reactivity.delayMs ?? 0) / 1000).toFixed(1)}s`
+                                    : 'Validators detect AccessGranted → invoke GateSplitter handler'
+                                  }
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Step 3: Confirmation */}
+                            <div className="flex items-start gap-3">
+                              <div className={`mt-0.5 w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${
+                                reactivity.confirmed ? 'bg-[#B9FF66]' : 'bg-[#F3F3F3] border border-[#191A23]/20'
+                              }`}>
+                                {reactivity.confirmed
+                                  ? <Check className="w-3 h-3 text-[#191A23]" />
+                                  : <div className="w-1.5 h-1.5 rounded-full bg-[#191A23]/20" />
+                                }
+                              </div>
+                              <div>
+                                <p className={`text-sm font-medium ${reactivity.confirmed ? 'text-[#191A23]' : 'text-[#191A23]/40'}`}>
+                                  {reactivity.confirmed ? 'PaymentConfirmed event emitted' : 'Pending handler confirmation'}
+                                </p>
+                                <p className="text-xs text-[#191A23]/40">
+                                  {reactivity.confirmed
+                                    ? 'Handler confirmed payment split — widget can detect this instantly'
+                                    : 'GateSplitter emits PaymentConfirmed for real-time widget updates'
+                                  }
+                                </p>
+                              </div>
+                            </div>
+
+                            {reactivity.confirmed && (
+                              <div className="mt-2 pt-3 border-t border-[#191A23]/10 text-center">
+                                <p className="text-xs text-[#191A23]/50">
+                                  Handler: <span className="font-mono">{SPLITTER.slice(0, 8)}…{SPLITTER.slice(-4)}</span>
+                                  {' · '}Subscription: #26135
+                                  {' · '}Delivery: <span className="font-medium text-[#191A23]">~{((reactivity.delayMs ?? 0) / 1000).toFixed(1)}s</span>
+                                </p>
+                              </div>
+                            )}
                           </div>
                         </div>
                       )}
