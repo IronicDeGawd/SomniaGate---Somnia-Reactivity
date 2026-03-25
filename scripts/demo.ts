@@ -65,7 +65,8 @@ async function main() {
   console.log('✓ User funded\n');
 
   // ── Create a gate ──
-  const contentId = keccak256(toBytes('premium-article-001'));
+  // Encode contentId as raw UTF-8 right-padded bytes32 (matches widget + dashboard encoding)
+  const contentId = ('0x' + Buffer.from('premium-article-001').toString('hex').padEnd(64, '0')) as Hex;
   const price = parseEther('2'); // 2 STT
 
   console.log('Creating gate...');

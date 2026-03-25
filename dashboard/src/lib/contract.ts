@@ -67,7 +67,7 @@ function getProvider() {
 
 // ABI encoding helpers
 
-function encodeBytes32(value: string): string {
+export function encodeBytes32(value: string): string {
   if (value.startsWith('0x')) {
     return value.slice(2).padEnd(64, '0')
   }
@@ -108,9 +108,11 @@ export async function checkAccess(
 }
 
 export interface Gate {
+  creator: string
   price: bigint
-  owner: string
   active: boolean
+  totalRevenue: bigint
+  unlockCount: bigint
 }
 
 export async function getGate(
@@ -125,12 +127,15 @@ export async function getGate(
     params: [{ to: contractAddress, data }, 'latest'],
   })) as string
 
+  // Contract returns: (address creator, uint256 price, bool active, uint256 totalRevenue, uint256 unlockCount)
   const hex = result.replace('0x', '')
-  const price = BigInt('0x' + hex.slice(0, 64))
-  const owner = '0x' + hex.slice(64 + 24, 128)
-  const active = BigInt('0x' + hex.slice(128, 192)) !== 0n
+  const creator = '0x' + hex.slice(24, 64)           // slot 0: address (last 20 bytes of 32)
+  const price = BigInt('0x' + (hex.slice(64, 128) || '0'))   // slot 1: uint256
+  const active = BigInt('0x' + (hex.slice(128, 192) || '0')) !== 0n // slot 2: bool
+  const totalRevenue = BigInt('0x' + (hex.slice(192, 256) || '0'))  // slot 3
+  const unlockCount = BigInt('0x' + (hex.slice(256, 320) || '0'))   // slot 4
 
-  return { price, owner, active }
+  return { creator, price, active, totalRevenue, unlockCount }
 }
 
 // Write helpers

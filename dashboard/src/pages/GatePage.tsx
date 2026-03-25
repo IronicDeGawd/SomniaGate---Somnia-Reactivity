@@ -3,17 +3,10 @@ import { useState } from 'react'
 import { Lock, Unlock, Wallet, Zap, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
-import { SELECTORS } from '@/lib/contract'
+import { SELECTORS, encodeBytes32 } from '@/lib/contract'
 
 const PAYGATE_ADDRESS = import.meta.env.VITE_PAYGATE_ADDRESS || ''
 const SOMNIA_CHAIN_ID = '0xC488' // 50312
-
-function encodeBytes32(value: string): string {
-  if (value.startsWith('0x')) return value.slice(2).padEnd(64, '0')
-  const hex = Array.from(new TextEncoder().encode(value))
-    .map(b => b.toString(16).padStart(2, '0')).join('')
-  return hex.padEnd(64, '0')
-}
 
 export default function GatePage() {
   const { id } = useParams<{ id: string }>()
