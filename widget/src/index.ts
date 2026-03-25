@@ -53,15 +53,15 @@ function toWei(stt: string): string {
 // Encode function call: unlock(bytes32)
 function encodeUnlock(contentId: string): string {
   // Function selector: bytes4(keccak256("unlock(bytes32)"))
-  const selector = '0x7eefbb65'; // pre-computed
-  const param = contentId.slice(2).padStart(64, '0');
+  const selector = '0xec9b5b3a'; // keccak256("unlock(bytes32)")
+  const param = contentId.slice(2).padEnd(64, '0');
   return selector + param;
 }
 
 // Encode view call: checkAccess(bytes32, address)
 function encodeCheckAccess(contentId: string, user: string): string {
-  const selector = '0x3e642e3c'; // pre-computed
-  const p1 = contentId.slice(2).padStart(64, '0');
+  const selector = '0x3e1fd0da'; // keccak256("checkAccess(bytes32,address)")
+  const p1 = contentId.slice(2).padEnd(64, '0');
   const p2 = user.slice(2).toLowerCase().padStart(64, '0');
   return selector + p1 + p2;
 }
@@ -286,7 +286,10 @@ async function waitForTx(provider: any, hash: string): Promise<void> {
       method: 'eth_getTransactionReceipt',
       params: [hash],
     });
-    if (receipt) return;
+    if (receipt) {
+      if (receipt.status === '0x0') throw new Error('Transaction reverted');
+      return;
+    }
     await new Promise(r => setTimeout(r, 1000));
   }
   throw new Error('Transaction timeout');

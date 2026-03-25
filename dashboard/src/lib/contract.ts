@@ -16,9 +16,11 @@ export const PAYGATE_ABI = [
     stateMutability: 'view',
     inputs: [{ name: 'contentId', type: 'bytes32' }],
     outputs: [
+      { name: 'creator', type: 'address' },
       { name: 'price', type: 'uint256' },
-      { name: 'owner', type: 'address' },
       { name: 'active', type: 'bool' },
+      { name: 'totalRevenue', type: 'uint256' },
+      { name: 'unlockCount', type: 'uint256' },
     ],
   },
   {
@@ -49,10 +51,10 @@ export const PAYGATE_ABI = [
 
 // Function selectors (keccak256 of the signature, first 4 bytes)
 export const SELECTORS = {
-  checkAccess: '0x6d8ea5b4', // checkAccess(bytes32,address)
-  getGate:     '0x5d0d70ef', // getGate(bytes32)
-  createGate:  '0x9dbb0e8a', // createGate(bytes32,uint256)
-  unlock:      '0xce0b63ce', // unlock(bytes32)
+  checkAccess: '0x3e1fd0da', // checkAccess(bytes32,address)
+  getGate:     '0xec661841', // getGate(bytes32)
+  createGate:  '0xcbaa224e', // createGate(bytes32,uint256)
+  unlock:      '0xec9b5b3a', // unlock(bytes32)
   withdraw:    '0x3ccfd60b', // withdraw()
 } as const
 

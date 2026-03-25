@@ -34,6 +34,9 @@ contract PayGate {
     /// @notice creator => withdrawable balance (after splits)
     mapping(address => uint256) public creatorBalances;
 
+    /// @notice Accumulated platform fees (pull pattern — prevents bricking unlocks)
+    uint256 public platformBalance;
+
     /// @notice Platform fee recipient
     address public immutable platform;
 
@@ -119,12 +122,9 @@ contract PayGate {
         uint256 platformCut = (gate.price * PLATFORM_FEE_BPS) / 10000;
         uint256 creatorCut = gate.price - platformCut;
 
-        // Credit creator balance (they withdraw later)
+        // Credit balances (pull pattern — both withdraw later)
         creatorBalances[gate.creator] += creatorCut;
-
-        // Send platform fee
-        (bool ok, ) = platform.call{value: platformCut}("");
-        if (!ok) revert TransferFailed();
+        platformBalance += platformCut;
 
         // Refund overpayment
         if (msg.value > gate.price) {
@@ -133,7 +133,7 @@ contract PayGate {
             if (!refundOk) revert TransferFailed();
         }
 
-        emit AccessGranted(contentId, msg.sender, msg.value, gate.creator);
+        emit AccessGranted(contentId, msg.sender, gate.price, gate.creator);
     }
 
     /**
@@ -148,6 +148,21 @@ contract PayGate {
         if (!ok) revert TransferFailed();
 
         emit Withdrawn(msg.sender, amount);
+    }
+
+    /**
+     * @notice Platform withdraws accumulated fees.
+     */
+    function withdrawPlatform() external nonReentrant {
+        require(msg.sender == platform, "not platform");
+        uint256 amount = platformBalance;
+        if (amount == 0) revert NothingToWithdraw();
+
+        platformBalance = 0;
+        (bool ok, ) = platform.call{value: amount}("");
+        if (!ok) revert TransferFailed();
+
+        emit Withdrawn(platform, amount);
     }
 
     /**

@@ -83,10 +83,10 @@ async function main() {
   console.log(`  Gas used: ${gsReceipt.gasUsed}`);
 
   // ── Step 4: Fund GateSplitter with STT for execution gas ──
-  console.log('\nFunding GateSplitter with 10 STT...');
+  console.log('\nFunding GateSplitter with 33 STT (min 32 required for Reactivity)...');
   const fundHash = await walletClient.sendTransaction({
     to: gsAddress,
-    value: parseEther('10'),
+    value: parseEther('33'),
   });
   await publicClient.waitForTransactionReceipt({ hash: fundHash, timeout: 60_000 });
   console.log('  ✓ Funded');
