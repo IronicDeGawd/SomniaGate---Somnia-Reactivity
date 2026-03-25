@@ -16,12 +16,92 @@ import { checkAccess, getGate, unlock, createGate, type Gate } from '@/lib/contr
 const PAYGATE = '0x87300fb8ae589141271f8840439288f6603fe1f6'
 const SPLITTER = '0xec5ce4acd506db15ed71175e47e5afd5e0bbf765'
 const EXPLORER = 'https://shannon-explorer.somnia.network'
+const WS_URL = 'wss://dream-rpc.somnia.network/ws'
 const RPC = 'https://dream-rpc.somnia.network/'
 const DEMO_CONTENT_ID = 'demo-article'
 
-// Read confirmationCount from GateSplitter via public RPC (no wallet needed)
+// Precomputed topic hashes
+const PAYMENT_CONFIRMED_TOPIC = '0x83472785bc544b42f9ebee31aa81b3170b4812ac086a7451c7337c9b56c2a1f0'
+
+/**
+ * Watch for Reactivity events via Somnia's native `somnia_watch` WebSocket subscription.
+ * This is the same protocol the @somnia-chain/reactivity SDK uses internally —
+ * replicated here with the browser's native WebSocket API.
+ *
+ * Returns a promise that resolves with the event data when a matching event arrives,
+ * plus a cleanup function.
+ */
+function watchReactivityEvent(
+  contractAddress: string,
+  topic: string,
+  timeoutMs = 30_000,
+): { promise: Promise<{ topics: string[]; data: string } | null>; cleanup: () => void } {
+  let ws: WebSocket | null = null
+  let resolved = false
+  let resolvePromise: (val: { topics: string[]; data: string } | null) => void
+
+  const promise = new Promise<{ topics: string[]; data: string } | null>((resolve) => {
+    resolvePromise = resolve
+
+    try {
+      ws = new WebSocket(WS_URL)
+
+      ws.onopen = () => {
+        // Send somnia_watch subscription (same JSON-RPC the SDK sends)
+        ws!.send(JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'eth_subscribe',
+          params: ['somnia_watch', {
+            address: [contractAddress],
+            topics: [topic],
+            eth_calls: [],
+            push_changes_only: false,
+          }],
+        }))
+      }
+
+      ws.onmessage = (evt) => {
+        try {
+          const msg = JSON.parse(evt.data)
+          // Subscription confirmations have { id, result: subscriptionId }
+          // Event pushes have { method: 'eth_subscription', params: { subscription, result } }
+          if (msg.method === 'eth_subscription' && msg.params?.result && !resolved) {
+            resolved = true
+            resolve({
+              topics: msg.params.result.topics || [],
+              data: msg.params.result.data || '0x',
+            })
+          }
+        } catch { /* ignore parse errors */ }
+      }
+
+      ws.onerror = () => {
+        if (!resolved) { resolved = true; resolve(null) }
+      }
+
+      // Timeout fallback
+      setTimeout(() => {
+        if (!resolved) { resolved = true; resolve(null) }
+      }, timeoutMs)
+
+    } catch {
+      resolve(null)
+    }
+  })
+
+  const cleanup = () => {
+    if (!resolved) { resolved = true; resolvePromise(null) }
+    if (ws && ws.readyState <= WebSocket.OPEN) {
+      ws.close()
+    }
+  }
+
+  return { promise, cleanup }
+}
+
+// Fallback: poll confirmationCount via RPC if WebSocket fails
 async function getConfirmationCount(): Promise<bigint> {
-  // confirmationCount() selector = keccak256("confirmationCount()") first 4 bytes
   const selector = '0x7ac3e4e6'
   const res = await fetch(RPC, {
     method: 'POST',
@@ -74,9 +154,9 @@ function CopyBtn({ text, className }: { text: string; className?: string }) {
 type UnlockStatus = 'loading' | 'locked' | 'connecting' | 'paying' | 'confirming' | 'unlocked'
 
 interface ReactivityState {
-  beforeCount: bigint
   confirmed: boolean
   delayMs: number | null
+  method: 'websocket' | 'polling' | null
 }
 
 function TryItSection() {
@@ -85,7 +165,7 @@ function TryItSection() {
   const [gate, setGate] = useState<Gate | null>(null)
   const [txHash, setTxHash] = useState<string | null>(null)
   const [gasUsed, setGasUsed] = useState<string | null>(null)
-  const [reactivity, setReactivity] = useState<ReactivityState>({ beforeCount: 0n, confirmed: false, delayMs: null })
+  const [reactivity, setReactivity] = useState<ReactivityState>({ confirmed: false, delayMs: null, method: null })
 
   useEffect(() => {
     async function check() {
@@ -118,9 +198,14 @@ function TryItSection() {
       const already = await checkAccess(PAYGATE, DEMO_CONTENT_ID, addr)
       if (already) { setStatus('unlocked'); return }
 
-      // Snapshot confirmationCount BEFORE unlock
+      setReactivity({ confirmed: false, delayMs: null, method: null })
+
+      // Start Reactivity WebSocket watch BEFORE sending tx
+      // This way we catch the push event as soon as the handler fires
+      const { promise: wsPromise, cleanup: wsCleanup } = watchReactivityEvent(
+        SPLITTER, PAYMENT_CONFIRMED_TOPIC, 30_000,
+      )
       const beforeCount = await getConfirmationCount()
-      setReactivity({ beforeCount, confirmed: false, delayMs: null })
 
       setStatus('paying')
       toast.info('Confirm the transaction in your wallet')
@@ -143,14 +228,22 @@ function TryItSection() {
       setStatus('unlocked')
       toast.success('Content unlocked!')
 
-      // Poll confirmationCount for Reactivity delivery (up to 30s)
-      for (let i = 0; i < 30; i++) {
-        await new Promise(r => setTimeout(r, 1000))
-        const newCount = await getConfirmationCount()
-        if (newCount > beforeCount) {
-          const delayMs = Date.now() - txSentAt
-          setReactivity({ beforeCount, confirmed: true, delayMs })
-          break
+      // Wait for Reactivity: WebSocket push OR polling fallback
+      const wsResult = await wsPromise
+      wsCleanup()
+
+      if (wsResult) {
+        // Reactivity delivered via WebSocket push
+        setReactivity({ confirmed: true, delayMs: Date.now() - txSentAt, method: 'websocket' })
+      } else {
+        // WebSocket didn't deliver — fall back to polling confirmationCount
+        for (let i = 0; i < 30; i++) {
+          await new Promise(r => setTimeout(r, 1000))
+          const newCount = await getConfirmationCount()
+          if (newCount > beforeCount) {
+            setReactivity({ confirmed: true, delayMs: Date.now() - txSentAt, method: 'polling' })
+            break
+          }
         }
       }
     } catch (err: any) {
@@ -283,7 +376,7 @@ function TryItSection() {
                                 </p>
                                 <p className="text-xs text-[#191A23]/40">
                                   {reactivity.confirmed
-                                    ? `GateSplitter.onEvent() called by validators in ~${((reactivity.delayMs ?? 0) / 1000).toFixed(1)}s`
+                                    ? `Delivered in ~${((reactivity.delayMs ?? 0) / 1000).toFixed(1)}s via ${reactivity.method === 'websocket' ? 'somnia_watch WebSocket push' : 'RPC polling fallback'}`
                                     : 'Validators detect AccessGranted → invoke GateSplitter handler'
                                   }
                                 </p>
@@ -306,7 +399,7 @@ function TryItSection() {
                                 </p>
                                 <p className="text-xs text-[#191A23]/40">
                                   {reactivity.confirmed
-                                    ? 'Handler confirmed payment split — widget can detect this instantly'
+                                    ? `PaymentConfirmed event ${reactivity.method === 'websocket' ? 'pushed to browser via WebSocket — no polling needed' : 'detected via on-chain state change'}`
                                     : 'GateSplitter emits PaymentConfirmed for real-time widget updates'
                                   }
                                 </p>
@@ -316,8 +409,8 @@ function TryItSection() {
                             {reactivity.confirmed && (
                               <div className="mt-2 pt-3 border-t border-[#191A23]/10 text-center">
                                 <p className="text-xs text-[#191A23]/50">
+                                  {reactivity.method === 'websocket' ? 'Protocol: somnia_watch · ' : ''}
                                   Handler: <span className="font-mono">{SPLITTER.slice(0, 8)}…{SPLITTER.slice(-4)}</span>
-                                  {' · '}Subscription: #26135
                                   {' · '}Delivery: <span className="font-medium text-[#191A23]">~{((reactivity.delayMs ?? 0) / 1000).toFixed(1)}s</span>
                                 </p>
                               </div>
