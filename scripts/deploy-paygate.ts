@@ -102,10 +102,10 @@ async function main() {
       handlerContractAddress: gsAddress,
       eventTopics: [accessGrantedTopic],
       emitter: pgAddress,
-      priorityFeePerGas: parseGwei('2'),
-      maxFeePerGas: parseGwei('10'),
-      gasLimit: 500_000n,
-      isGuaranteed: false,
+      priorityFeePerGas: parseGwei('10'),
+      maxFeePerGas: parseGwei('20'),
+      gasLimit: 3_000_000n,
+      isGuaranteed: true,
       isCoalesced: false,
     });
 
