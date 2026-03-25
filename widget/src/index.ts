@@ -24,13 +24,10 @@ interface GateElement extends HTMLElement {
 
 // ── Minimal ABI encoding (no viem dependency) ──
 
-function keccak256Hex(text: string): string {
-  // We'll use the contract address + content string hashed via the browser
-  // For simplicity, encode contentId as bytes32 from the string
+/** Encode a UTF-8 string as right-padded bytes32 (max 32 bytes, truncated). */
+function encodeBytes32(text: string): string {
   const encoder = new TextEncoder();
   const data = encoder.encode(text);
-  // Simple hash — in production use proper keccak256
-  // For now, pad the content string as bytes32
   let hex = '0x';
   for (let i = 0; i < 32; i++) {
     hex += (data[i] || 0).toString(16).padStart(2, '0');
@@ -40,7 +37,7 @@ function keccak256Hex(text: string): string {
 
 function toBytes32(str: string): string {
   if (str.startsWith('0x') && str.length === 66) return str;
-  return keccak256Hex(str);
+  return encodeBytes32(str);
 }
 
 function toWei(stt: string): string {

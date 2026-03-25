@@ -44,6 +44,8 @@ contract GateSplitter is SomniaEventHandler {
     ) internal override {
         // Verify event came from our PayGate
         require(emitter == payGateAddress, "wrong emitter");
+        // Verify topic count matches AccessGranted (signature + 3 indexed)
+        require(eventTopics.length >= 4, "unexpected topics");
 
         // Decode AccessGranted(bytes32 contentId, address user, uint256 amount, address creator)
         // Topic[0] = event signature

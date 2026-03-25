@@ -1,73 +1,65 @@
 import { useParams } from 'react-router-dom'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Lock, Unlock, Wallet, Zap, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
-import { SELECTORS, encodeBytes32 } from '@/lib/contract'
+import { getGate, checkAccess, unlock as unlockGate, type Gate } from '@/lib/contract'
+import { useAuthStore } from '@/store/auth'
 
-const PAYGATE_ADDRESS = '0x87300fb8ae589141271f8840439288f6603fe1f6'
-const SOMNIA_CHAIN_ID = '0xC488' // 50312
+const PAYGATE = '0x87300fb8ae589141271f8840439288f6603fe1f6'
+
+function formatSTT(wei: bigint): string {
+  const whole = wei / 10n ** 18n
+  const frac = wei % 10n ** 18n
+  const fracStr = frac.toString().padStart(18, '0').replace(/0+$/, '')
+  return fracStr ? `${whole}.${fracStr}` : whole.toString()
+}
 
 export default function GatePage() {
   const { id } = useParams<{ id: string }>()
-  const [status, setStatus] = useState<'locked' | 'connecting' | 'paying' | 'confirming' | 'unlocked'>('locked')
+  const { address, isConnected, connect } = useAuthStore()
+  const [status, setStatus] = useState<'loading' | 'locked' | 'connecting' | 'paying' | 'confirming' | 'unlocked'>('loading')
+  const [gate, setGate] = useState<Gate | null>(null)
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const g = await getGate(PAYGATE, id || '')
+        setGate(g)
+        if (isConnected && address) {
+          const has = await checkAccess(PAYGATE, id || '', address)
+          setStatus(has ? 'unlocked' : 'locked')
+        } else {
+          setStatus('locked')
+        }
+      } catch {
+        setStatus('locked')
+      }
+    }
+    load()
+  }, [id, isConnected, address])
 
   const handleUnlock = async () => {
-    const provider = (window as any).ethereum
-    if (!provider) {
-      toast.error('No wallet found. Install MetaMask.')
-      return
-    }
-    if (!PAYGATE_ADDRESS) {
-      toast.error('PayGate contract not configured')
-      return
-    }
-
+    if (!gate) return
     try {
-      setStatus('connecting')
-      const accounts = await provider.request({ method: 'eth_requestAccounts' }) as string[]
-      const from = accounts[0]
-
-      // Ensure Somnia network
-      const chainId = await provider.request({ method: 'eth_chainId' }) as string
-      if (chainId !== SOMNIA_CHAIN_ID) {
-        await provider.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: SOMNIA_CHAIN_ID }] })
+      if (!isConnected) {
+        setStatus('connecting')
+        await connect()
       }
+      const addr = useAuthStore.getState().address
+      if (!addr) return
 
-      // Get gate price
-      const gateData = SELECTORS.getGate + encodeBytes32(id || '')
-      const gateResult = await provider.request({
-        method: 'eth_call',
-        params: [{ to: PAYGATE_ADDRESS, data: gateData }, 'latest'],
-      }) as string
-      // Decode: creator (32 bytes) + price (32 bytes)
-      const priceHex = gateResult.slice(66, 130) // second 32-byte slot
-      const price = '0x' + priceHex.replace(/^0+/, '') || '0x0'
+      const already = await checkAccess(PAYGATE, id || '', addr)
+      if (already) { setStatus('unlocked'); return }
 
       setStatus('paying')
-      toast.info('Sign the transaction in your wallet')
-
-      // Call unlock(bytes32) with value
-      const unlockData = SELECTORS.unlock + encodeBytes32(id || '')
-      const txHash = await provider.request({
-        method: 'eth_sendTransaction',
-        params: [{
-          from,
-          to: PAYGATE_ADDRESS,
-          data: unlockData,
-          value: price,
-          gas: '0x' + (200_000).toString(16),
-        }],
-      }) as string
+      toast.info('Confirm the transaction in your wallet')
+      const txHash = await unlockGate(PAYGATE, id || '', gate.price, addr)
 
       setStatus('confirming')
-
-      // Wait for receipt
+      const provider = (window as any).ethereum
       for (let i = 0; i < 60; i++) {
-        const receipt = await provider.request({
-          method: 'eth_getTransactionReceipt',
-          params: [txHash],
-        }) as any
+        const receipt = await provider.request({ method: 'eth_getTransactionReceipt', params: [txHash] }) as any
         if (receipt) {
           if (receipt.status === '0x0') throw new Error('Transaction reverted')
           break
@@ -79,21 +71,22 @@ export default function GatePage() {
       toast.success('Content unlocked!')
     } catch (err: any) {
       setStatus('locked')
-      if (err.code === 4001) {
-        toast.error('Transaction cancelled')
-      } else {
-        toast.error(err.message?.slice(0, 60) || 'Failed')
-      }
+      if (err.code === 4001) toast.error('Transaction cancelled')
+      else toast.error(err.message?.slice(0, 60) || 'Failed')
     }
   }
 
-  const statusMessages = {
+  const statusMessages: Record<string, string> = {
+    loading: 'Loading gate…',
     locked: 'Pay to unlock this content',
     connecting: 'Connecting wallet...',
     paying: 'Confirm payment in wallet...',
     confirming: 'Confirming on Somnia...',
     unlocked: 'Content unlocked!',
   }
+
+  const priceStr = gate ? formatSTT(gate.price) : '…'
+  const creatorCutStr = gate ? formatSTT(gate.price * 95n / 100n) : '…'
 
   return (
     <div className="flex-1 flex items-center justify-center p-8 bg-[#F3F3F3]">
@@ -132,7 +125,7 @@ export default function GatePage() {
                   <p className="text-base text-[#191A23]/70">
                     {statusMessages[status]}
                   </p>
-                  {status !== 'locked' && (
+                  {status !== 'locked' && status !== 'loading' && (
                     <Loader2 className="w-5 h-5 text-[#191A23] animate-spin mx-auto" />
                   )}
                 </div>
@@ -140,7 +133,7 @@ export default function GatePage() {
                 <div className="rounded-[14px] bg-[#F3F3F3] border border-[#191A23]/20 p-4 space-y-2">
                   <div className="flex justify-between text-base">
                     <span className="text-[#191A23]/60">Price</span>
-                    <span className="font-medium text-[#191A23]">5 STT</span>
+                    <span className="font-medium text-[#191A23]">{priceStr} STT</span>
                   </div>
                   <div className="flex justify-between text-base">
                     <span className="text-[#191A23]/60">Network</span>
@@ -148,7 +141,7 @@ export default function GatePage() {
                   </div>
                   <div className="flex justify-between text-base">
                     <span className="text-[#191A23]/60">Creator receives</span>
-                    <span className="font-medium text-green-600">4.75 STT (95%)</span>
+                    <span className="font-medium text-green-600">{creatorCutStr} STT (95%)</span>
                   </div>
                 </div>
 
@@ -160,7 +153,7 @@ export default function GatePage() {
                   disabled={status !== 'locked'}
                 >
                   <Wallet className="w-4 h-4 mr-2" />
-                  Unlock for 5 STT
+                  {!isConnected ? 'Connect & Unlock' : `Unlock for ${priceStr} STT`}
                 </Button>
               </>
             )}
